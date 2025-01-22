@@ -70,7 +70,7 @@ class ParticipationSerializer(serializers.ModelSerializer):
 class DisciplinePointSerializer(serializers.ModelSerializer):
     class Meta:
         model = DisciplinePoint
-        fields = ['id', 'student','activity', 'criteria', 'score', 'total_score']
+        fields = ['id', 'student','activity', 'criteria', 'score', 'group_total_score']
 
 
 class ReportSerializer(serializers.ModelSerializer):

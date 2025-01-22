@@ -10,37 +10,121 @@ from django.urls import path
 class MyScoreAdmin(admin.AdminSite):
     site_header = 'Edu Scores'
     site_title = "EduScore Admin"
-    index_title = "Welcome to EduScore Admin "
+    index_title = "Welcome to EduScore Admin"
 
     def get_urls(self):
-        return [path('score-stats/', self.stats)] + super().get_urls()
+        return [
+            path('score-stats/', self.stats),
+            path('export-csv/', self.export_csv),
+            path('export-pdf/', self.export_pdf),
+        ] + super().get_urls()
 
-    def stats(self,request):
-        stats_by_department = (
-            DisciplinePoint.objects.values('student__groups__name')
-            .annotate(
-                total_score=Sum('score'),
-                avg_score=Avg('score'),
-                student_count=Count('student', distinct=True)
-            )
-        )
+    def stats(self, request):
+        # Lấy danh sách các lớp
+        all_classes = Class.objects.all()
 
-        # Thống kê xếp loại
-        classification = (
-            DisciplinePoint.objects.values('student__groups__name')
-            .annotate(
-                excellent=Count('total_score', filter=Q(total_score__gte=90)),
-                good=Count('total_score', filter=Q(total_score__gte=75, total_score__lt=90)),
-                average=Count('total_score', filter=Q(total_score__gte=50, total_score__lt=75)),
-                poor=Count('total_score', filter=Q(total_score__lt=50)),
+        # Lấy lớp được chọn từ request
+        selected_class_id = request.GET.get('class')
+        if selected_class_id:
+            # Lọc thống kê theo lớp được chọn
+            stats_by_class = (
+                DisciplinePoint.objects.filter(student__student_class__id=selected_class_id)
+                .values('student__student_class__name')
+                .annotate(
+                    total_score=Sum('score'),
+                    avg_score=Avg('score'),
+                    student_count=Count('student', distinct=True)
+                )
             )
-        )
+            classification = (
+                DisciplinePoint.objects.filter(student__student_class__id=selected_class_id)
+                .values('student__student_class__name')
+                .annotate(
+                    excellent=Count('score', filter=Q(score__gte=90)),
+                    good=Count('score', filter=Q(score__gte=75, score__lt=90)),
+                    average=Count('score', filter=Q(score__gte=50, score__lt=75)),
+                    poor=Count('score', filter=Q(score__lt=50)),
+                )
+            )
+        else:
+            # Hiển thị thống kê cho tất cả các lớp
+            stats_by_class = (
+                DisciplinePoint.objects.values('student__student_class__name')
+                .annotate(
+                    total_score=Sum('score'),
+                    avg_score=Avg('score'),
+                    student_count=Count('student', distinct=True)
+                )
+            )
+            classification = (
+                DisciplinePoint.objects.values('student__student_class__name')
+                .annotate(
+                    excellent=Count('score', filter=Q(score__gte=90)),
+                    good=Count('score', filter=Q(score__gte=75, score__lt=90)),
+                    average=Count('score', filter=Q(score__gte=50, score__lt=75)),
+                    poor=Count('score', filter=Q(score__lt=50)),
+                )
+            )
 
         context = {
-            'stats_by_department': stats_by_department,
+            'all_classes': all_classes,
+            'selected_class_id': int(selected_class_id) if selected_class_id else None,
+            'stats_by_class': stats_by_class,
             'classification': classification,
         }
+
         return TemplateResponse(request, 'admin/stats.html', context)
+
+    def export_csv(self, request):
+        # Xuất danh sách chi tiết dưới dạng CSV
+        response = HttpResponse(content_type='text/csv')
+        response['Content-Disposition'] = 'attachment; filename="discipline_points.csv"'
+
+        writer = csv.writer(response)
+        writer.writerow(['Student', 'Class', 'Department', 'Score', 'Description', 'Created At'])
+
+        points = DisciplinePoint.objects.select_related('student', 'student__department', 'student__student_class')
+        for point in points:
+            writer.writerow([
+                point.student.username,
+                point.student.student_class.name if point.student.student_class else '',
+                point.student.department.name if point.student.department else '',
+                point.score,
+                point.description,
+                point.created_at,
+            ])
+
+        return response
+
+    def export_pdf(self, request):
+        # Xuất danh sách chi tiết dưới dạng PDF
+        response = HttpResponse(content_type='application/pdf')
+        response['Content-Disposition'] = 'attachment; filename="discipline_points.pdf"'
+
+        buffer = BytesIO()
+        p = canvas.Canvas(buffer, pagesize=A4)
+
+        # Tiêu đề
+        p.setFont("Helvetica-Bold", 16)
+        p.drawString(200, 800, "Discipline Points Report")
+        p.setFont("Helvetica", 12)
+
+        # Nội dung
+        y = 750
+        points = DisciplinePoint.objects.select_related('student', 'student__department', 'student__student_class')
+        for point in points:
+            if y < 50:  # Tạo trang mới nếu hết chỗ
+                p.showPage()
+                y = 750
+            p.drawString(50, y, f"Student: {point.student.username}, Class: {point.student.student_class.name if point.student.student_class else ''}, "
+                                 f"Score: {point.score}, Description: {point.description}")
+            y -= 20
+
+        p.save()
+        buffer.seek(0)
+        response.write(buffer.getvalue())
+        buffer.close()
+        return response
 
 class BaseAdmin(admin.ModelAdmin):
     class Media:
@@ -93,8 +177,20 @@ class ParticipationAdmin(BaseAdmin):
             return mark_safe(f"<img src='/static/{participation.proof.name}' width='120'/>")
         return "No image"
 
+class EvaluationCriteriaAdmin(admin.ModelAdmin):
+    list_display = ('name', 'group', 'score', 'active', 'created_date')
+    list_filter = ('group', 'active', 'created_date')
+    search_fields = ('name', 'group__name')
+    ordering = ('group', 'name')
+    list_editable = ('score', 'active')
+
+class EvaluationGroupAdmin(admin.ModelAdmin):
+    list_display = ('name', 'max_score', 'active', 'created_date')
+    search_fields = ('name',)
+    list_editable = ('max_score', 'active')
+
 class DisciplinePointAdmin(BaseAdmin):
-    list_display = ('student', 'criteria', 'score', 'total_score')
+    list_display = ('student', 'criteria', 'score', 'group_total_score')
     list_filter = ('student',)
 
 class ReportAdmin(BaseAdmin):
@@ -133,6 +229,8 @@ admin_site.register(Class)
 admin_site.register(Category,CategoryAdmin)
 admin_site.register(Activity, ActivityAdmin)
 admin_site.register(Participation, ParticipationAdmin)
+admin_site.register(EvaluationCriteria, EvaluationCriteriaAdmin)
+admin_site.register(EvaluationGroup, EvaluationGroupAdmin)
 admin_site.register(DisciplinePoint, DisciplinePointAdmin)
 admin_site.register(Report, ReportAdmin)
 admin_site.register(NewsFeed, NewsFeedAdmin)

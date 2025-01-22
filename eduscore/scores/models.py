@@ -9,6 +9,7 @@ class User(AbstractUser):
     avatar = CloudinaryField(null=True, blank=True)
     department = models.ForeignKey('Department', on_delete=models.SET_NULL, null=True, blank=True)
     student_class = models.ForeignKey('Class', on_delete=models.SET_NULL, null=True, blank=True)
+    total_score = models.FloatField(default=0)
 
 class BaseModel(models.Model):
     active = models.BooleanField(default=True)
@@ -54,6 +55,7 @@ class Activity(BaseModel):
     )
     category = models.ForeignKey(Category, on_delete=models.PROTECT)
     tags = models.ManyToManyField('Tag')
+    max_score = models.FloatField(default=0)
 
     def __str__(self):
         return self.title
@@ -67,12 +69,62 @@ class Participation(BaseModel):
     class Meta:
         unique_together = ('student', 'activity')
 
+
+class EvaluationGroup(BaseModel):
+    name = models.CharField(max_length=255, unique=True)
+    max_score = models.FloatField()
+
+    def __str__(self):
+        return self.name
+
+
+class EvaluationCriteria(BaseModel):
+    group = models.ForeignKey(EvaluationGroup, on_delete=models.CASCADE)
+    name = models.CharField(max_length=255)
+    score= models.FloatField(default=0)
+    def __str__(self):
+        return f"{self.name} ({self.group.name})"
+
+
 class DisciplinePoint(BaseModel):
     student = models.ForeignKey(User, on_delete=models.CASCADE)
-    activity = models.ForeignKey('Activity', on_delete=models.CASCADE)
-    criteria = models.CharField(max_length=255)
-    score = models.FloatField()
-    total_score = models.FloatField(default=0)
+    activity = models.ForeignKey(Activity, on_delete=models.CASCADE)
+    criteria = models.ForeignKey(EvaluationCriteria, on_delete=models.CASCADE)
+    score = models.FloatField(default=0)
+    group_total_score = models.FloatField(default=0)
+
+    def save(self, *args, **kwargs):
+        self.calculate_group_total_score()
+
+        self.update_student_total_score()
+        super().save(*args, **kwargs)
+
+    def calculate_group_total_score(self):
+        evaluation_group = self.criteria.group
+
+        group_total = DisciplinePoint.objects.filter(
+            student=self.student,
+            activity=self.activity,
+            criteria__group=evaluation_group
+        ).aggregate(total=models.Sum('score'))['total'] or 0
+
+        self.group_total_score = min(group_total, evaluation_group.max_score)
+
+    def update_student_total_score(self):
+        evaluation_groups = EvaluationGroup.objects.all()
+
+        total_score = 0
+
+        for group in evaluation_groups:
+            group_total = DisciplinePoint.objects.filter(
+                student=self.student,
+                criteria__group=group
+            ).aggregate(total=models.Sum('score'))['total'] or 0
+
+            total_score += min(group_total, group.max_score)
+
+        self.student.total_score = total_score
+        self.student.save()
 
 class Report(BaseModel):
     student = models.ForeignKey(User,  related_name='student_reports', on_delete=models.CASCADE)

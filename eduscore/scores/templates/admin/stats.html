@@ -1,108 +1,112 @@
-{% extends 'admin/base_site.html' %}
+{% extends "admin/base_site.html" %}
 
 {% block content %}
-<h1>Thống kê điểm rèn luyện</h1>
+<h1>Thống Kê Theo Lớp</h1>
 
-<h2>Thống kê theo khoa</h2>
+<!-- Form chọn lớp -->
+<form method="get" action="" style="margin-bottom: 20px;">
+    <label for="class_select">Chọn lớp:</label>
+    <select id="class_select" name="class" onchange="this.form.submit()">
+        <option value="">Tất cả các lớp</option>
+        {% for cls in all_classes %}
+        <option value="{{ cls.id }}" {% if selected_class_id == cls.id %}selected{% endif %}>
+            {{ cls.name }}
+        </option>
+        {% endfor %}
+    </select>
+</form>
+
+<table>
+    <thead>
+        <tr>
+            <th>Lớp</th>
+            <th>Tổng Điểm</th>
+            <th>Điểm Trung Bình</th>
+            <th>Số Lượng Sinh Viên</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for stat in stats_by_class %}
+        <tr>
+            <td>{{ stat.student__student_class__name }}</td>
+            <td>{{ stat.total_score }}</td>
+            <td>{{ stat.avg_score }}</td>
+            <td>{{ stat.student_count }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h1>Phân Loại Theo Lớp</h1>
+<table>
+    <thead>
+        <tr>
+            <th>Lớp</th>
+            <th>Xuất Sắc</th>
+            <th>Giỏi</th>
+            <th>Khá</th>
+            <th>Trung Bình</th>
+            <th>Yếu</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for cls in classification %}
+        <tr>
+            <td>{{ cls.student__student_class__name }}</td>
+            <td>{{ cls.excellent }}</td>
+            <td>{{ cls.good }}</td>
+            <td>{{ cls.average }}</td>
+            <td>{{ cls.poor }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<a href="/admin/export-csv/" class="button">Xuất CSV</a>
+<a href="/admin/export-pdf/" class="button">Xuất PDF</a>
+
+<h1>Thống Kê Chung</h1>
 <ul>
-    {% for stat in stats_by_department %}
-    <li>
-        <strong>{{ stat.student__groups__name }}</strong>:
-        {{ stat.student_count }} sinh viên,
-        tổng điểm {{ stat.total_score }},
-        điểm trung bình {{ stat.avg_score|floatformat:2 }}
-    </li>
+    {% for s in stats %}
+    <li><strong>{{ s.name }}</strong>: {{ s.count }}</li>
     {% endfor %}
 </ul>
 
-<div style="width: 60%; margin-top: 30px;">
-    <canvas id="departmentChart"></canvas>
-</div>
-
-<h2>Xếp loại thành tích</h2>
-<ul>
-    {% for stat in classification %}
-    <li>
-        <strong>{{ stat.student__groups__name }}</strong>:
-        Xuất sắc: {{ stat.excellent }},
-        Giỏi: {{ stat.good }},
-        Khá: {{ stat.average }},
-        Kém: {{ stat.poor }}
-    </li>
-    {% endfor %}
-</ul>
-
-<div style="width: 60%; margin-top: 30px;">
-    <canvas id="classificationChart"></canvas>
+<div style="width: 60%">
+    <canvas id="myChart"></canvas>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
-    // Dữ liệu thống kê theo khoa
-    const departmentLabels = [];
-    const departmentData = [];
+    let data = [];
+    let labels = [];
 
-    {% for stat in stats_by_department %}
-        departmentLabels.push('{{ stat.student__groups__name }}');
-        departmentData.push({{ stat.avg_score }});
+    {% for s in stats %}
+        labels.push('{{ s.name }}');
+        data.push({{ s.count }});
     {% endfor %}
 
-    const ctx1 = document.getElementById('departmentChart');
-    new Chart(ctx1, {
-        type: 'bar',
-        data: {
-            labels: departmentLabels,
-            datasets: [{
-                label: 'Điểm trung bình',
-                data: departmentData,
-                backgroundColor: 'rgba(75, 192, 192, 0.2)',
-                borderColor: 'rgba(75, 192, 192, 1)',
-                borderWidth: 1
-            }]
-        },
-        options: {
-            scales: {
-                y: {
-                    beginAtZero: true
+    window.onload = function() {
+        const ctx = document.getElementById('myChart');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '# Số lượng sinh viên',
+                    data: data,
+                    borderWidth: 1,
+                    backgroundColor: ['red', 'green', 'blue', 'yellow', 'purple']
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
                 }
             }
-        }
-    });
-
-    // Dữ liệu thống kê xếp loại
-    const classificationLabels = ['Xuất sắc', 'Giỏi', 'Khá', 'Kém'];
-    const classificationData = [
-        {% for stat in classification %}
-        {{ stat.excellent }},
-        {{ stat.good }},
-        {{ stat.average }},
-        {{ stat.poor }},
-        {% endfor %}
-    ];
-
-    const ctx2 = document.getElementById('classificationChart');
-    new Chart(ctx2, {
-        type: 'pie',
-        data: {
-            labels: classificationLabels,
-            datasets: [{
-                label: 'Xếp loại thành tích',
-                data: classificationData,
-                backgroundColor: [
-                    'rgba(255, 99, 132, 0.2)',
-                    'rgba(54, 162, 235, 0.2)',
-                    'rgba(255, 206, 86, 0.2)',
-                    'rgba(153, 102, 255, 0.2)',
-                ],
-                borderColor: [
-                    'rgba(255, 99, 132, 1)',
-                    'rgba(54, 162, 235, 1)',
-                    'rgba(255, 206, 86, 1)',
-                    'rgba(153, 102, 255, 1)',
-                ],
-                borderWidth: 1
-            }]
-        }
-    });
+        });
+    };
 </script>
 {% endblock %}
